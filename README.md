@@ -1,3 +1,4 @@
+![](image.png)
 # System Monitor
 
 A local system monitoring dashboard: a Rust API that reads CPU and RAM stats from `/proc` and a Next.js app that displays them per server, with servers stored in SQLite via Prisma.
