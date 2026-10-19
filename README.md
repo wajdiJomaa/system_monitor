@@ -15,8 +15,9 @@ frontend/monitor/     Next.js dashboard (port 3000)
 Reads `/proc/cpuinfo`, `/proc/stat`, and `/proc/meminfo` and exposes:
 
 - `GET /cpu_identity` — CPU vendor, model, family, stepping, microcode
-- `GET /system_stats` — latest CPU and RAM snapshot
-- `WS /ws/system_stats` — pushes CPU + RAM stats every second
+- `GET /system_stats` — latest CPU, RAM, and process snapshot
+- `WS /ws/system_stats` — pushes CPU, RAM, and process stats every second
+- `POST /processes/kill` — sends `SIGTERM` (or `SIGKILL`) to a PID, used by the Kill button in the process table
 
 ```bash
 cargo run
@@ -44,3 +45,4 @@ DATABASE_URL="file:./data/monitor.db"
 - Database and generated Prisma client live in `frontend/monitor/data/` and `frontend/monitor/app/generated/prisma/` — both are gitignored.
 - The right-click context menu on a sidebar server entry opens an inline editor.
 - Dark mode follows the system theme and can be toggled in the sidebar.
+- The API has no authentication and the backend binds `0.0.0.0`, so anyone who can reach port `3001` can read stats and kill processes on that host. Keep it on a trusted network, or bind it to `127.0.0.1`.

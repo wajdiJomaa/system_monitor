@@ -60,7 +60,7 @@ async function ServerDetails({
         <Suspense fallback={<CardLoading label="Loading CPU identity…" />}>
           <CpuIdentityCard apiUrl={apiUrl} />
         </Suspense>
-        <SystemStatsCards wsUrl={wsUrl} />
+        <SystemStatsCards serverId={server.id} wsUrl={wsUrl} />
       </div>
     </div>
   );

@@ -1,11 +1,46 @@
 "use server";
 
 import { db } from "@/app/lib/db";
+import { getServerUrl } from "@/app/lib/cpu";
 
 export type ServerFormState = {
   error?: string;
   success?: boolean;
 };
+
+export type KillResult = {
+  success: boolean;
+  message: string;
+};
+
+export async function killProcess(
+  serverId: number,
+  pid: number,
+  signal: "TERM" | "KILL" = "TERM",
+): Promise<KillResult> {
+  const server = await db.server.findUnique({ where: { id: serverId } });
+
+  if (!server) {
+    return { success: false, message: "Server not found." };
+  }
+
+  const apiUrl = getServerUrl(server.host, server.port);
+
+  try {
+    const res = await fetch(`${apiUrl}/processes/kill`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pid, signal }),
+    });
+
+    return (await res.json()) as KillResult;
+  } catch {
+    return {
+      success: false,
+      message: `Could not reach the server at ${apiUrl}.`,
+    };
+  }
+}
 
 export async function createServer(
   _previousState: ServerFormState,

@@ -10,9 +10,19 @@ export interface RamUsage {
   used_percent: number;
 }
 
+export interface ProcessInfo {
+  pid: number;
+  name: string;
+  command: string | null;
+  state: string;
+  cpu_percent: number;
+  mem_kb: number;
+}
+
 export interface SystemStats {
   cpu: Record<string, number>;
   ram: RamUsage;
+  processes: ProcessInfo[];
 }
 
 export interface UsageHistory {
