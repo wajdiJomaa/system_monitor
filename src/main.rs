@@ -1,10 +1,6 @@
 mod models;
 mod services;
 
-use models::cpu::cpu_identity::CpuIdentity;
-use services::cpu::cpu_identity_service;
-use services::cpu::cpu_usage_service;
-
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -20,31 +16,42 @@ use axum::{
     response::IntoResponse,
     routing::*,
 };
+use models::cpu::cpu_identity::CpuIdentity;
+use models::ram::ram_usage::RamUsage;
+use serde::Serialize;
+use services::cpu::{cpu_identity_service, cpu_usage_service};
+use services::ram::ram_usage_service;
 use tokio::{net::TcpListener, sync::broadcast};
+
+#[derive(Clone, Default, Serialize)]
+struct SystemStats {
+    cpu: HashMap<String, f64>,
+    ram: RamUsage,
+}
 
 #[derive(Clone)]
 struct AppState {
-    cache: Arc<Mutex<HashMap<String, f64>>>,
-    tx: broadcast::Sender<HashMap<String, f64>>,
+    cache: Arc<Mutex<SystemStats>>,
+    tx: broadcast::Sender<SystemStats>,
 }
 
 #[tokio::main]
 async fn main() {
     let (tx, _) = broadcast::channel(16);
     let state = AppState {
-        cache: Arc::new(Mutex::new(HashMap::new())),
+        cache: Arc::new(Mutex::new(SystemStats::default())),
         tx,
     };
 
-    tokio::spawn(cpu_usage_updater(state.clone()));
+    tokio::spawn(stats_updater(state.clone()));
 
     let app = Router::new()
         .route("/cpu_identity", get(get_cpu_identity))
-        .route("/cpu_usage", get(get_cpu_usage))
-        .route("/ws/cpu_usage", get(ws_cpu_usage))
+        .route("/system_stats", get(get_system_stats))
+        .route("/ws/system_stats", get(ws_system_stats))
         .with_state(state);
 
-    let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = TcpListener::bind("0.0.0.0:3001").await.unwrap();
 
     axum::serve(listener, app).await.unwrap();
 }
@@ -53,20 +60,20 @@ async fn get_cpu_identity() -> Json<CpuIdentity> {
     Json(cpu_identity_service::get_cpu_identity())
 }
 
-async fn get_cpu_usage(State(state): State<AppState>) -> Json<HashMap<String, f64>> {
+async fn get_system_stats(State(state): State<AppState>) -> Json<SystemStats> {
     Json(state.cache.lock().unwrap().clone())
 }
 
-async fn ws_cpu_usage(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_cpu_usage_socket(socket, state))
+async fn ws_system_stats(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_system_stats_socket(socket, state))
 }
 
-async fn handle_cpu_usage_socket(mut socket: WebSocket, state: AppState) {
+async fn handle_system_stats_socket(mut socket: WebSocket, state: AppState) {
     let mut rx = state.tx.subscribe();
 
     {
         let current = state.cache.lock().unwrap().clone();
-        if !current.is_empty() {
+        if !current.cpu.is_empty() {
             let Ok(json) = serde_json::to_string(&current) else {
                 return;
             };
@@ -80,8 +87,8 @@ async fn handle_cpu_usage_socket(mut socket: WebSocket, state: AppState) {
         tokio::select! {
             msg = rx.recv() => {
                 match msg {
-                    Ok(usage) => {
-                        let Ok(json) = serde_json::to_string(&usage) else {
+                    Ok(stats) => {
+                        let Ok(json) = serde_json::to_string(&stats) else {
                             continue;
                         };
                         if socket.send(Message::Text(json.into())).await.is_err() {
@@ -103,14 +110,14 @@ async fn handle_cpu_usage_socket(mut socket: WebSocket, state: AppState) {
     }
 }
 
-async fn cpu_usage_updater(state: AppState) {
+async fn stats_updater(state: AppState) {
     let mut prev = cpu_usage_service::parse_cpu_usage();
 
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let curr = cpu_usage_service::parse_cpu_usage();
 
-        let usage: HashMap<String, f64> = prev
+        let cpu: HashMap<String, f64> = prev
             .iter()
             .filter_map(|(name, prev_stats)| {
                 curr.get(name).map(|curr_stats| {
@@ -122,8 +129,13 @@ async fn cpu_usage_updater(state: AppState) {
             })
             .collect();
 
-        *state.cache.lock().unwrap() = usage.clone();
-        let _ = state.tx.send(usage);
+        let stats = SystemStats {
+            cpu,
+            ram: ram_usage_service::parse_ram_usage(),
+        };
+
+        *state.cache.lock().unwrap() = stats.clone();
+        let _ = state.tx.send(stats);
         prev = curr;
     }
 }
